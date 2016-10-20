@@ -22,5 +22,21 @@ class TaskAction extends ConsoleAction
 	{
 		print time();
 	}
+
+	public function queue()
+	{
+		for ($i=0; $i < 100; $i++) { 
+			
+			$data 	= array(time());
+			$method = rand(100, 10000);
+			$this->load('queuelib')->addQueue('test', $data, 'test123');
+
+		}
+	}
+
+	public function fork()
+	{
+		$this->load('worker')->run('test', 'run', 'tradeQueue');
+	}
 }
 ?>
