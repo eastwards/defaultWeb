@@ -42,7 +42,7 @@ class QueueLibModule extends AppModule
         $flag   = $objRs->set($uKey, true, self::SECOND);
         if ( $flag === false ) return false;
 
-        $res 	= array(
+        $res = array(
             'method'    => $method,
             'source'	=> $source,
             'data'      => $data,

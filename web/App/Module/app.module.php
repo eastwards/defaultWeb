@@ -10,11 +10,36 @@
  */
 abstract class AppModule extends Module
 {
-	public function __construct()
-	{
-		//自定义业务逻辑
+	protected $encoding;
+
+    public function __construct()
+    {
+    	//自定义业务逻辑
 		$this->getLoginUser();
-	}
+        $this->encoding = $this->com('encoding');
+    }
+
+    /**
+     * 解密队列数据
+     *
+     * @param   string      $data   队列加密数据
+     * @return  array
+     */
+    public function decode($data, $encoding=0)
+    {
+        return $this->encoding->decode($data, $encoding);
+    }
+
+    /**
+     * 加密队列数据
+     *
+     * @param   array   $data   队列数据
+     * @return  string
+     */
+    public function encode($data, $encoding=0)
+    {
+        return $this->encoding->encode($data, $encoding);
+    }
 
 	public function getDb($dbName='')
 	{

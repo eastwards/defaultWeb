@@ -1,7 +1,4 @@
 <?
-if (php_sapi_name() != "cli") {
-    exit("Only run in command line mode \n");
-}
 /**
  * worker 多进程处理类
  *
@@ -13,119 +10,147 @@ if (php_sapi_name() != "cli") {
  */
 class WorkerModule extends AppModule
 {
-    protected $workerId     = 0;
-    protected $runningKey   = '_trade_worker_' ;
-    protected $cacheType    = 'redisQc';//缓存类型
-    protected $queueType    = 'redisQ';//队列类型
+    public $runningKey   = '_trade_worker_default_' ;
+    public $cacheType    = 'redisQc' ;//缓存类型
 
+    public $pid ;
     protected $worker ;//worker对象
-    protected $workerName ;//worker类
-    protected $workerMethod ;//worker要执行的方法
-    protected $queue ;//队列对象
-    protected $queueName ;//队列对象
+    protected $running ;//是否运行
+    protected $child ;//子进程
 
+    const COUNT     = 10 ;
+    const TIMEOUT   = 60 ;
 
-    const COUNT = 10 ;
-
-    public function before()
+    public function __construct()
     {
-        //可以在超时后执行，destruct无法执行。
-        register_shutdown_function(array(&$this,'destroy'));
+        if (php_sapi_name() != "cli") {
+            exit("code只能在cli命令行下执行");
+        }
+        $this->objC = $this->com($this->cacheType);//获取缓存资源
 
-        if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
-            exit('Script does not support Windows');
+        //if ( !is_object($this->objC) ) {
+        //    exit("缓存不可用");
+        //}
+    }
+
+    public function setWorker($worker, $method)
+    {
+        if ( empty($worker) || empty($method) ) {
+            exit("worker与method不能为空");
         }
 
-        $this->objC = $this->com($this->cacheType);//获取缓存资源
-        $this->objQ = $this->com($this->queueType);//获取队列资源
-
-        if ( !is_object($this->objC) || !is_object($this->objQ) ) exit('Queue cache error');
-
-        $this->messageList = array(
-            '101' => 'model error or model is not object',
-            '102' => 'method error',
-            '103' => 'method has not',
-            '104' => 'execute failed',
-            '201' => 'execute success',
-        );
+        $callback = $this->load($worker);
+        if ( !method_exists($callback, $method) ) {
+            exit("worker中未找到{$method}方法");
+        }
+        $this->runningKey  .= "{$worker}_{$method}_" ;
+        $this->callback     = array($callback, $method);
+        return $this;
     }
 
-    protected function loadWorker($worker, $method, $queueName)
+    public function setCallback($function)
     {
-        if ( empty($worker) ) exit('No worker');
-        if ( empty($method) ) exit('No method');
-        if ( empty($queueName) ) exit('No queueName');
-
-        $this->worker       = $this->load($worker);
-        if ( !method_exists($this->worker, $method) ) exit('Worker has not method');
-
-        $this->workerName   = $worker;
-        $this->workerMethod = $method;
-        $this->queue        = $this->objQ->name($queueName);
-        $this->queueName    = $queueName;
+        if ( !is_callable($function) ){
+            exit("方法不是callback类型");
+        }
+        $this->callback = $function;
+        return $this;
     }
 
-    public function run($worker, $method, $queueName, $count=5)
+    public function run($count=1)
     {
-        $this->loadWorker($worker, $method, $queueName);
-        $this->saveMasterPid();
+        if ( !empty($this->pid) && $this->running ) {
+            exit("worker正在运行");
+        }
+        $isRun = $this->objC->get($this->runningKey);
+        if ( !empty($isRun) ){
+            exit("worker正在运行");
+        }
+        $this->objC->close();
 
-        $count      = (intval($count) > 10 || intval($count) <= 0) ? self::COUNT : intval($count) ;
-        $total      = 0;
-        $timeout    = 5;
-        while (1){
-            $size   = $this->queue->size();
-            if ( $size == 0 ) {
-                if ( $total <= 0 ) {
-                    sleep(1); $timeout--;
-                    if ( $timeout <= 0 ) break; //超时5秒，且没有队列数据与子进程在运行
-                    continue;
-                }
+        $count = (intval($count) > 10 || intval($count) <= 0) ? self::COUNT : intval($count) ;
 
-                pcntl_wait($status);
-                $total--; usleep(100000); continue;
-            }
-            $total++;
-            $timeout    = 5;
-            $pid        = pcntl_fork();
-
-            if ( $pid == -1 ) {
-                exit('Could not fork');
+        for ($i = 0 ; $i < $count ; $i++) { 
+            $pid = pcntl_fork();
+            if ( $pid == -1 ){
+                exit("fork未成功");
             }elseif ( $pid ){
-                if ( $total >= $count ){
-                    pcntl_wait($status);
-                    $total--;
-                }
+                $this->running  = true;
+                $this->pid      = posix_getpid();
+                $this->child[]  = $pid;
             }else{
-                $data = $this->queue->pop();
-                $flag = call_user_func( array($this->worker, $this->workerMethod), $data );
-                if ( $flag === false ){
-                    //TODO 失败是否重新丢入
-                }
+                call_user_func( $this->callback );
                 exit(0);
             }
         }
+
+        //$flag = $this->objC->set($this->runningKey, $this->pid, self::TIMEOUT);
+        $this->listen();
+        //$this->wait();
     }
 
-    protected function saveMasterPid()
+    protected function listen()
     {
-        $this->_pidFile     = LogDir.'/'.$this->runningKey.$this->workerName.'_'.$this->workerMethod.'.pid' ;
-        $this->_masterPid   = posix_getpid();
+        $flag = $this->objC->set($this->runningKey, $this->pid, self::TIMEOUT);
+        if ( !$flag ){
+            exit("缓存状态未成功");
+        }else{
+            echo "listen start";
+        }
+        $this->objC->close();
 
-        if (false === @file_put_contents($this->_pidFile, $this->_masterPid)) {
-            throw new Exception('can not save pid to ' . $this->_pidFile);
+        $pid = pcntl_fork();
+        if ( $pid == -1 ){
+            exit("listen进程fork未成功");
+        }elseif ( $pid ){
+            //listenning
+            return $this;
+        }else{
+            while (true) {
+                $isOut = exec("ps -ax | awk '{ print $1 }' | grep -e \"^{$this->pid}\"");
+                error_log("isOut : $isOut -".date('Y-m-d H:i:s')." \n ", 3, LogDir.'/test.log');
+                if ( !$isOut ) break;
+                                
+                $this->objC->set($this->runningKey, $this->pid, self::TIMEOUT);
+                error_log("listen wait".date('Y-m-d H:i:s')." \n ", 3, LogDir.'/test.log');
+
+                sleep(2);
+            }
+            error_log("listen ok -".date('Y-m-d H:i:s')." \n ", 3, LogDir.'/test.log');
+            $this->objC->remove($this->runningKey);
+            exit(0);
         }
     }
 
-    protected function destory()
+    public function wait($sleep = 100000)
     {
-        $this->worker       = null;
-        $this->workerName   = null;
-        $this->workerMethod = null;
-        $this->queue        = null;
-        $this->queueName    = null;
+        error_log("wait init {$this->runningKey}".date('Y-m-d H:i:s')." \n ", 3, LogDir.'/test.log');
+        while ( count($this->child) > 0 ) {
+            foreach ($this->child as $key => $id) {
+                $res = pcntl_waitpid($pid, $status, WNOHANG);
+                if ( $res == -1 || $res > 0 ) {
+                    unset($this->child[$key]);
+                    error_log("wait unset {$this->runningKey}".date('Y-m-d H:i:s')." \n ", 3, LogDir.'/test.log');
+                }
+            }
+            error_log("wait {$this->runningKey}".date('Y-m-d H:i:s')." \n ", 3, LogDir.'/test.log');
+            if ( empty($this->child) ) {
+                error_log("wait empty {$this->runningKey}".date('Y-m-d H:i:s')." \n ", 3, LogDir.'/test.log');
+                break;
+            }
+            usleep($sleep);
+        }
+        $this->running = false;
+        error_log("wait ok {$this->runningKey}".date('Y-m-d H:i:s')." \n ", 3, LogDir.'/test.log');
+    }
 
-        @unlink($this->_pidFile);
+    protected function isRunning($pid)
+    {
+        //if ($this->running !== true) {
+        //    return false;
+        //}
+                
+        return true;
     }
 
 }
