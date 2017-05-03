@@ -31,6 +31,14 @@ class QueueWorkAction extends QueueCommonAction
             '201' => 'execute success',
         );
     }
+
+    public function test()
+    {
+        sleep(rand(2,3));
+        //echo rand(1,9)."\n";
+        sleep(rand(1,2));
+        error_log("child end".date('Y-m-d H:i:s')." \n ", 3, LogDir.'/test.log');
+    }
     
     /**
      * 管理队列并执行它

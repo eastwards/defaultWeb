@@ -38,27 +38,29 @@ class TaskAction extends ConsoleAction
 	{
 		umask(0);
 		$obj = $this->load('worker');
-		// $redis = new Redis();
-		// $redis->connect('127.0.0.1', 6379);
-		// $redis->select(9);
-		// $redis->setex('bbbb', 60, $obj->pid);
-		// $redis->close();
+
 		$this->com('redisQc')->set('bbbb', 123, 60, 0);
-		//echo $this->com('redisQc')->get('bbbb',0);
-		//$this->com('redisQc')->close();
-		//exit('~~~123');
 
 		$obj->setWorker('test', 'run')->run(3);
 		$obj->wait();
 
-		// $redis = new Redis();
-		// $redis->connect('127.0.0.1', 6379);
-		// $redis->select(9);
-		//$this->com('redisQc')->remove('aaaa');
 		sleep(1);
 		$this->com('redisQc')->remove('bbbb', 0);
 		// $redis->delete('bbbb');
 		echo "\n fork finish... \n";
+	}
+
+	public function callback()
+	{
+		umask(0);
+		$obj = $this->load('worker');
+		$obj->setCallback(function(){
+			sleep(rand(1,2));
+			echo rand(1,9)."\n";
+			sleep(rand(1,2));
+			error_log("child end".date('Y-m-d H:i:s')." \n ", 3, LogDir.'/test.log');
+		})->run(5);
+		$obj->wait();
 	}
 }
 ?>

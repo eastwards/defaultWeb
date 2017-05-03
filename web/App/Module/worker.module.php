@@ -10,36 +10,59 @@
  */
 class WorkerModule extends AppModule
 {
-    public $runningKey   = '_trade_worker_default_' ;
+    public $runningKey   = '_trade_worker_default_' ;//主进程名
     public $cacheType    = 'redisQc' ;//缓存类型
 
-    public $pid ;
+    public $pid ;//主进程ID
     protected $worker ;//worker对象
     protected $running ;//是否运行
-    protected $child ;//子进程
+    protected $child ;//子进程数组
 
     const COUNT     = 10 ;
     const TIMEOUT   = 60 ;
 
     public function __construct()
     {
+        // 只能在命令行中执行
         if (php_sapi_name() != "cli") {
             exit("code只能在cli命令行下执行");
         }
-        $this->objC = $this->com($this->cacheType);//获取缓存资源
+        // 检查PHP版本
+        if (version_compare(PHP_VERSION, '5.3.0', 'lt')) 
+        {
+            exit("PHP版本必须5.3+");
+        }
+        // 需要pcntl扩展支持
+        if ( !function_exists('pcntl_fork') ) 
+        {
+            exit("必须有pcntl扩展");
+        }
 
-        //if ( !is_object($this->objC) ) {
-        //    exit("缓存不可用");
-        //}
+        $this->objC = $this->com($this->cacheType);//获取缓存资源
+        if ( !is_object($this->objC) ) {
+           exit("缓存不可用");
+        }
     }
 
-    public function setWorker($worker, $method)
+    /*********************************************************
+     *  设置worker类与方法
+     *
+     *
+     *********************************************************/
+    public function setWorker($worker, $method='run')
     {
         if ( empty($worker) || empty($method) ) {
             exit("worker与method不能为空");
         }
-
-        $callback = $this->load($worker);
+        //如果worker是类对象
+        if ( is_object($worker) ){
+            $callback = $worker;
+            $worker = get_class($callback);
+        }else{
+            //组件对象
+            $callback = $this->load($worker);
+        }
+        
         if ( !method_exists($callback, $method) ) {
             exit("worker中未找到{$method}方法");
         }
@@ -48,15 +71,26 @@ class WorkerModule extends AppModule
         return $this;
     }
 
+    /*********************************************************
+     *  使用callback方法进行多进程处理
+     *
+     *
+     *********************************************************/
     public function setCallback($function)
     {
         if ( !is_callable($function) ){
             exit("方法不是callback类型");
         }
+        $this->runningKey  .= md5(time())."_" ;
         $this->callback = $function;
         return $this;
     }
 
+    /*********************************************************
+     *  执行worker ，count决定子进程数量
+     *
+     *
+     *********************************************************/
     public function run($count=1)
     {
         if ( !empty($this->pid) && $this->running ) {
@@ -85,18 +119,22 @@ class WorkerModule extends AppModule
         }
 
         //$flag = $this->objC->set($this->runningKey, $this->pid, self::TIMEOUT);
-        $this->listen();
+        return $this->listen();
         //$this->wait();
     }
 
+    /*********************************************************
+     * 创建子进程监控主进程是否退出
+     *
+     *
+     *********************************************************/
     protected function listen()
     {
         $flag = $this->objC->set($this->runningKey, $this->pid, self::TIMEOUT);
         if ( !$flag ){
             exit("缓存状态未成功");
-        }else{
-            echo "listen start";
         }
+        //echo "listen start";        
         $this->objC->close();
 
         $pid = pcntl_fork();
@@ -122,6 +160,11 @@ class WorkerModule extends AppModule
         }
     }
 
+    /*********************************************************
+     * 等待子进程退出
+     *
+     *
+     *********************************************************/
     public function wait($sleep = 100000)
     {
         error_log("wait init {$this->runningKey}".date('Y-m-d H:i:s')." \n ", 3, LogDir.'/test.log');
