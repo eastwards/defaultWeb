@@ -1,12 +1,8 @@
 <?
-
-$web    = 'web';                                  //设置项目目录名称
-$cmdDir = dirname(__FILE__);                        //获取当前路径
-$webDir = realpath($cmdDir . '/' . $web);
-$libDir = realpath($webDir . '/../Spring');
-define('WebDir', $webDir);                          //设置项目目录
-require_once($libDir.'/Spring.php');                     //载入框架入口文件
-require_once(LibDir.'/Util/Tool/MakeCode.php');          //载入代码生成工具
+$cmdDir = dirname(__FILE__);                            //获取当前路径
+require($cmdDir . '/init.php');
+require_once(LibDir . '/Spring.php');                     //载入框架入口文件
+require_once(LibDir . '/Util/Tool/MakeCode.php');         //载入代码生成工具
 
 //指定数据库名、表前缀
 $configs = array(
