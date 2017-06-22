@@ -6,7 +6,7 @@
 defined('RootDir') or define('RootDir', dirname(__FILE__));
 
 $web    = 'web';
-$webDir = realpath(RootDir . $web);
+$webDir = realpath(RootDir . "/{$web}");
 $libDir = realpath(RootDir . '/Spring');
 
 define('AppDir', RootDir . '/App');

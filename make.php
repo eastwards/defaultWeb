@@ -19,6 +19,6 @@ $configs = array(
     );
 Spring::init();
 //指定数据库配置文件存放路径
-MakeCode::$configFileDir = WebDir.'/Config/Db';
+MakeCode::$configFileDir = RootDir.'/Config/Db';
 MakeCode::create($configs);
 ?>
